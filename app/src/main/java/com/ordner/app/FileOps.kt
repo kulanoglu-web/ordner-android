@@ -5,9 +5,24 @@ import java.io.File
 
 object FileOps {
 
-    fun list(dir: File): List<File> =
-        (dir.listFiles()?.toList() ?: emptyList())
-            .sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+    /** Ordner zuerst; optional nach Farbe gruppiert (Farbindex, ohne Farbe zuletzt). */
+    fun list(
+        dir: File,
+        sortByColor: Boolean = false,
+        colorOf: (File) -> Int = { -1 },
+    ): List<File> {
+        val all = dir.listFiles()?.toList() ?: emptyList()
+        if (!sortByColor) {
+            return all.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+        }
+        return all.sortedWith(
+            compareBy<File>(
+                { !it.isDirectory },
+                { if (it.isDirectory) (colorOf(it).takeIf { c -> c >= 0 } ?: Int.MAX_VALUE) else 0 },
+                { it.name.lowercase() },
+            ),
+        )
+    }
 
     /** Entfernt Pfadanteile, damit empfangene Namen nie aus dem Zielordner ausbrechen. */
     fun safeName(name: String): String {
@@ -54,6 +69,9 @@ object FileOps {
         return copied
     }
 
-    fun mime(file: File): String =
-        MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "*/*"
+    fun mime(file: File): String {
+        val ext = file.extension.lowercase()
+        if (ext == "apk") return "application/vnd.android.package-archive"
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+    }
 }

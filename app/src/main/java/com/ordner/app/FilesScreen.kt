@@ -7,7 +7,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.ColorLens
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -76,6 +82,7 @@ fun FilesScreen(vm: AppViewModel, onSend: () -> Unit) {
     var showNewFolder by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<File?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var showColors by remember { mutableStateOf(false) }
     val dir = vm.currentDir
 
     BackHandler(enabled = vm.selectMode || dir != null) {
@@ -88,6 +95,7 @@ fun FilesScreen(vm: AppViewModel, onSend: () -> Unit) {
             onNewFolder = { showNewFolder = true },
             onRename = { renameTarget = vm.selection.firstOrNull() },
             onDelete = { confirmDelete = true },
+            onColor = { showColors = true },
             onSend = {
                 vm.queueSelection()
                 onSend()
@@ -122,6 +130,15 @@ fun FilesScreen(vm: AppViewModel, onSend: () -> Unit) {
             onDismiss = { renameTarget = null },
         )
     }
+    if (showColors) {
+        ColorPickerDialog(
+            onPick = { index ->
+                vm.setColor(index)
+                showColors = false
+            },
+            onDismiss = { showColors = false },
+        )
+    }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
@@ -146,6 +163,7 @@ private fun FilesToolbar(
     onNewFolder: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    onColor: () -> Unit,
     onSend: () -> Unit,
 ) {
     val ctx = LocalContext.current
@@ -189,6 +207,9 @@ private fun FilesToolbar(
                     IconButton(onClick = onRename, enabled = vm.selection.size == 1) {
                         Icon(Icons.Filled.Edit, contentDescription = "Umbenennen")
                     }
+                    IconButton(onClick = onColor, enabled = hasSel) {
+                        Icon(Icons.Filled.ColorLens, contentDescription = "Ordnerfarbe")
+                    }
                     IconButton(onClick = onDelete, enabled = hasSel) {
                         Icon(Icons.Filled.Delete, contentDescription = "Löschen")
                     }
@@ -211,6 +232,14 @@ private fun FilesToolbar(
                         }
                         IconButton(onClick = { vm.toggleSelectMode() }) {
                             Icon(Icons.Filled.Checklist, contentDescription = "Auswählen")
+                        }
+                        IconButton(onClick = { vm.toggleSortByColor() }) {
+                            Icon(
+                                Icons.Filled.Palette,
+                                contentDescription = "Ordner nach Farben ordnen",
+                                tint = if (vm.sortByColor) MaterialTheme.colorScheme.primary
+                                else LocalContentColor.current,
+                            )
                         }
                     }
                     IconButton(onClick = { vm.refreshStorage() }) {
@@ -257,6 +286,8 @@ private fun FileList(vm: AppViewModel) {
                 file = f,
                 selected = f in vm.selection,
                 selectMode = vm.selectMode,
+                folderTint = vm.folderColors[f.absolutePath]
+                    ?.let { FolderColors.palette.getOrNull(it)?.color },
                 onClick = {
                     when {
                         vm.selectMode -> vm.toggle(f)
@@ -276,6 +307,7 @@ private fun FileRow(
     file: File,
     selected: Boolean,
     selectMode: Boolean,
+    folderTint: Color?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -301,8 +333,9 @@ private fun FileRow(
         Icon(
             iconFor(file),
             contentDescription = null,
-            tint = if (file.isDirectory) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = folderTint
+                ?: if (file.isDirectory) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
@@ -375,6 +408,37 @@ fun StorageCard(
             extra()
         }
     }
+}
+
+@Composable
+fun ColorPickerDialog(onPick: (Int?) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ordnerfarbe") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                FolderColors.palette.withIndex().chunked(4).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        row.forEach { (i, fc) ->
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Box(
+                                    Modifier
+                                        .size(48.dp)
+                                        .focusHighlight()
+                                        .clip(CircleShape)
+                                        .background(fc.color)
+                                        .clickable { onPick(i) },
+                                )
+                                Text(fc.name, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onPick(null) }) { Text("Keine Farbe") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } },
+    )
 }
 
 @Composable

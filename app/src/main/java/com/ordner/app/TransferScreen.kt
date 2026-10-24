@@ -47,6 +47,7 @@ fun TransferScreen(vm: AppViewModel, onGoFiles: () -> Unit) {
     val peers by t.peers.collectAsStateWithLifecycle()
     val progress by t.progress.collectAsStateWithLifecycle()
     val receiving by t.receiving.collectAsStateWithLifecycle()
+    val searching by t.searching.collectAsStateWithLifecycle()
     var manualIp by rememberSaveable { mutableStateOf("") }
 
     val queue = vm.sendQueue
@@ -54,8 +55,8 @@ fun TransferScreen(vm: AppViewModel, onGoFiles: () -> Unit) {
     val canSend = queue.isNotEmpty() && !busy
     val ips = remember(receiving) { localIps() }
 
+    // Keine Dauersuche: Suche nur auf Knopfdruck, beim Verlassen des Reiters wird sie beendet.
     DisposableEffect(Unit) {
-        t.startDiscovery()
         onDispose { t.stopDiscovery() }
     }
 
@@ -80,11 +81,24 @@ fun TransferScreen(vm: AppViewModel, onGoFiles: () -> Unit) {
 
         item {
             SectionCard("Geräte im Netzwerk (WLAN / LAN)") {
-                if (peers.isEmpty()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Button(onClick = { t.startDiscovery() }, enabled = !searching) {
+                        Text("Geräte suchen")
+                    }
+                    if (searching) {
+                        Spacer(Modifier.width(12.dp))
                         CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(10.dp))
-                        Text("Suche nach Geräten mit Ordner …")
+                        Spacer(Modifier.width(8.dp))
+                        Text("Suche läuft …")
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                if (peers.isEmpty()) {
+                    if (!searching) {
+                        Text(
+                            "Keine Geräte gefunden. Auf dem anderen Gerät muss Ordner offen und der Empfang aktiv sein.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                 } else {
                     peers.forEach { p ->

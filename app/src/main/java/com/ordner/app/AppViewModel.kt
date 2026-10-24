@@ -1,6 +1,7 @@
 package com.ordner.app
 
 import android.app.Application
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -41,8 +42,38 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     var message by mutableStateOf<String?>(null)
 
+    private val settings = app.getSharedPreferences("settings", Context.MODE_PRIVATE)
+
+    /** Ordnerfarben: Pfad -> Index in FolderColors.palette */
+    var folderColors by mutableStateOf<Map<String, Int>>(emptyMap())
+        private set
+    var sortByColor by mutableStateOf(false)
+        private set
+
     init {
+        folderColors = FolderColors.load(app)
+        sortByColor = settings.getBoolean("sort_color", false)
         transfer.startReceiving()
+    }
+
+    fun toggleSortByColor() {
+        sortByColor = !sortByColor
+        settings.edit().putBoolean("sort_color", sortByColor).apply()
+        currentDir?.let { load(it) }
+    }
+
+    /** Färbt die markierten Ordner ein (index = null entfernt die Farbe). */
+    fun setColor(index: Int?) {
+        val folders = selection.filter { it.isDirectory }
+        if (folders.isEmpty()) {
+            message = "Bitte mindestens einen Ordner auswählen"
+            return
+        }
+        val ctx = getApplication<Application>()
+        FolderColors.set(ctx, folders, index)
+        folderColors = FolderColors.load(ctx)
+        clearSelection()
+        currentDir?.let { load(it) }
     }
 
     // ------------------------------------------------------------ Speicher
@@ -78,8 +109,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun load(dir: File) {
+        val byColor = sortByColor
+        val colors = folderColors
         viewModelScope.launch(Dispatchers.IO) {
-            val list = FileOps.list(dir)
+            val list = FileOps.list(dir, byColor) { colors[it.absolutePath] ?: -1 }
             if (currentDir == dir) entries = list
         }
     }
@@ -132,10 +165,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val cut = clipboardCut
         if (items.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
+            val ctx = getApplication<Application>()
             val result = runCatching {
-                items.forEach { if (cut) FileOps.move(it, target) else FileOps.copy(it, target) }
+                items.forEach {
+                    if (cut) {
+                        val moved = FileOps.move(it, target)
+                        FolderColors.move(ctx, it, moved)
+                    } else {
+                        FileOps.copy(it, target)
+                    }
+                }
             }
             withContext(Dispatchers.Main) {
+                folderColors = FolderColors.load(ctx)
                 result
                     .onSuccess {
                         message = "Eingefügt"
@@ -164,9 +206,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val name = FileOps.safeName(newName)
         val target = File(file.parentFile, name)
         clearSelection()
+        val existed = target.exists()
+        val ok = !existed && file.renameTo(target)
+        if (ok) {
+            val ctx = getApplication<Application>()
+            FolderColors.move(ctx, file, target)
+            folderColors = FolderColors.load(ctx)
+        }
         message = when {
-            target.exists() -> "Name existiert bereits"
-            file.renameTo(target) -> "Umbenannt"
+            existed -> "Name existiert bereits"
+            ok -> "Umbenannt"
             else -> "Umbenennen fehlgeschlagen"
         }
         currentDir?.let { load(it) }

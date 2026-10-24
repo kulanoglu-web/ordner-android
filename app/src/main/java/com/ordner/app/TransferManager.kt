@@ -10,6 +10,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +48,7 @@ class TransferManager(
         private const val MAGIC = "ORDNER1"
         private const val SERVICE_TYPE = "_ordner._tcp."
         private const val BUF = 64 * 1024
+        private const val SEARCH_MS = 20_000L
     }
 
     private val _peers = MutableStateFlow<List<Peer>>(emptyList())
@@ -60,6 +62,9 @@ class TransferManager(
 
     private val _receiving = MutableStateFlow(false)
     val receiving: StateFlow<Boolean> = _receiving.asStateFlow()
+
+    private val _searching = MutableStateFlow(false)
+    val searching: StateFlow<Boolean> = _searching.asStateFlow()
 
     val deviceName: String = (
         Settings.Global.getString(context.contentResolver, "device_name")
@@ -258,6 +263,7 @@ class TransferManager(
     private val nsd = context.getSystemService(Context.NSD_SERVICE) as NsdManager
     private var regListener: NsdManager.RegistrationListener? = null
     private var discListener: NsdManager.DiscoveryListener? = null
+    private var searchJob: Job? = null
 
     @Volatile
     private var ownName: String? = null
@@ -294,8 +300,17 @@ class TransferManager(
         regListener = null
     }
 
+    /** Sucht 20 Sekunden lang und hört dann von selbst auf (spart Akku und Arbeitsspeicher). */
     fun startDiscovery() {
         if (discListener != null) return
+        synchronized(lock) { found.clear() }
+        publishPeers()
+        _searching.value = true
+        searchJob?.cancel()
+        searchJob = scope.launch {
+            delay(SEARCH_MS)
+            stopDiscovery()
+        }
         val l = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) {}
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
@@ -308,6 +323,7 @@ class TransferManager(
             override fun onDiscoveryStopped(serviceType: String) {}
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
                 discListener = null
+                _searching.value = false
             }
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {}
         }
@@ -316,18 +332,21 @@ class TransferManager(
             nsd.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, l)
         } catch (e: Exception) {
             discListener = null
+            searchJob?.cancel()
+            _searching.value = false
         }
     }
 
     fun stopDiscovery() {
+        searchJob?.cancel()
+        searchJob = null
         discListener?.let { runCatching { nsd.stopServiceDiscovery(it) } }
         discListener = null
         synchronized(lock) {
-            found.clear()
             resolveQueue.clear()
             resolving = false
         }
-        publishPeers()
+        _searching.value = false
     }
 
     private fun publishPeers() {

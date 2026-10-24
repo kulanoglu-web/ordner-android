@@ -14,12 +14,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Usb
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -30,6 +37,31 @@ import java.io.File
 fun StorageScreen(vm: AppViewModel, onBrowse: (File) -> Unit) {
     val ctx = LocalContext.current
     val hasRemovable = vm.roots.any { it.removable }
+    var formatRoot by remember { mutableStateOf<StorageRoot?>(null) }
+
+    formatRoot?.let { r ->
+        AlertDialog(
+            onDismissRequest = { formatRoot = null },
+            title = { Text("${r.label} formatieren?") },
+            text = {
+                Text(
+                    "Android erlaubt Apps das Formatieren nicht selbst. Ich öffne dafür die " +
+                        "Speicher-Einstellungen. Dort wählst du das Laufwerk und tippst auf " +
+                        "„Formatieren“ bzw. „Löschen“. Auf Fernsehern findest du es unter " +
+                        "Einstellungen → Geräteeinstellungen → Speicher.\n\n" +
+                        "ACHTUNG: Dabei werden ALLE Daten auf diesem Laufwerk gelöscht. " +
+                        "Sichere wichtige Dateien vorher.",
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    formatRoot = null
+                    openStorageSettings(ctx)
+                }) { Text("Einstellungen öffnen") }
+            },
+            dismissButton = { TextButton(onClick = { formatRoot = null }) { Text("Abbrechen") } },
+        )
+    }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -62,8 +94,8 @@ fun StorageScreen(vm: AppViewModel, onBrowse: (File) -> Unit) {
             StorageCard(root, onClick = { onBrowse(root.dir) }) {
                 if (root.removable) {
                     Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = { openStorageSettings(ctx) }) {
-                        Text("Formatieren / Auswerfen …")
+                    Button(onClick = { formatRoot = root }) {
+                        Text("Formatieren …")
                     }
                 }
             }

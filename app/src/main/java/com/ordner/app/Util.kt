@@ -5,6 +5,8 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.core.content.FileProvider
@@ -51,6 +53,25 @@ fun fileUri(ctx: Context, file: File) =
     FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", file)
 
 fun openFile(ctx: Context, file: File) {
+    // APK installieren: Android verlangt dafür eine einmalige Erlaubnis pro App.
+    if (file.extension.equals("apk", ignoreCase = true) &&
+        Build.VERSION.SDK_INT >= 26 &&
+        !ctx.packageManager.canRequestPackageInstalls()
+    ) {
+        Toast.makeText(
+            ctx,
+            "Bitte „Apps installieren“ für Ordner erlauben und die APK danach erneut öffnen",
+            Toast.LENGTH_LONG,
+        ).show()
+        try {
+            ctx.startActivity(
+                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${ctx.packageName}")),
+            )
+        } catch (e: Exception) {
+            // Einstellungsseite fehlt auf diesem Gerät
+        }
+        return
+    }
     val intent = Intent(Intent.ACTION_VIEW)
         .setDataAndType(fileUri(ctx, file), FileOps.mime(file))
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
